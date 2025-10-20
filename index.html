@@ -16,37 +16,14 @@
 
   <div class="grid" id="attrGrid"></div>
 
-  <div class="achievement-panel">
-    <div class="topline">
-      <div style="font-weight:600;text-align:center;flex:1">技能成就</div>
-    </div>
-    <div class="achievement-grid" id="achievementGrid"></div>
-  </div>
-
   <div class="habit-panel">
     <div class="topline">
       <div style="font-weight:600;text-align:center;flex:1">今日习惯</div>
-      <button class="view-toggle" id="viewToggle">时间线视图</button>
     </div>
-    
-    <div id="listView">
-      <div class="small" style="text-align:center;margin-bottom:8px">长按拖拽排序</div>
-      <div class="habit-list" id="habitList"></div>
-      <div class="small" style="text-align:center;margin-top:8px">往左拉动可以删除</div>
-    </div>
+    <div class="small" style="text-align:center;margin-bottom:8px">长按拖拽排序</div>
 
-    <div id="timelineView" style="display:none">
-      <div class="timeline-controls">
-        <label>时间范围：</label>
-        <input type="time" id="timeStart" value="06:00" />
-        <span>至</span>
-        <input type="time" id="timeEnd" value="23:00" />
-      </div>
-      <div class="timeline-container" id="timelineContainer">
-        <div class="timeline-ruler" id="timelineRuler"></div>
-        <div class="timeline-habits" id="timelineHabits"></div>
-      </div>
-    </div>
+    <div class="habit-list" id="habitList"></div>
+    <div class="small" style="text-align:center;margin-top:8px">往左拉动可以删除</div>
 
     <div class="add-cta">
       <button class="add-btn large" id="openAdd">＋ 添加新习惯</button>
