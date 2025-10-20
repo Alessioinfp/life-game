@@ -154,11 +154,12 @@
 
   <div class="habit-panel">
     <div class="topline">
-      <div style="font-weight:600">今日习惯</div>
-      <div class="small" style="margin-left:auto">（长按拖拽排序）</div>
+      <div style="font-weight:600;text-align:center;flex:1">今日习惯</div>
     </div>
+    <div class="small" style="text-align:center;margin-bottom:8px">（长按拖拽排序）</div>
 
     <div class="habit-list" id="habitList"></div>
+    <div class="small" style="text-align:center;margin-top:8px">往左拉动可以删除</div>
 
     <div class="add-cta">
       <button class="add-btn large" id="openAdd">＋ 添加新习惯</button>
@@ -263,7 +264,7 @@ function render(){
         <div class="left">
           <div style="display:flex;flex-direction:column">
             <div class="habit-title">${h.title}</div>
-            <div class="habit-reward">${h.rewards.map(r=>`+${r.value}${r.attribute}`).join('  ')}</div>
+            <div class="habit-reward">${h.rewards.map(r=>`${r.value >= 0 ? '+' : ''}${r.value}${r.attribute}`).join('  ')}</div>
           </div>
         </div>
         <div class="controls">
@@ -495,24 +496,40 @@ function toggleComplete(id){
 }
 
 function awardRewards(rewards){
-  // rewards = [{attribute, value}, ...]
+  // rewards = [{attribute, value}, ...] - 支持负数减少经验
   const levelUps = [];
+  const levelDowns = [];
   rewards.forEach(r=>{
     const attr = state.attributes[r.attribute];
     if(!attr) return;
-    // 略增奖励手感：乘以 1.2
-    attr.exp += Math.round((r.value || 0) * 1.2);
-    // check while loop for multi-level
+    const change = Math.round((r.value || 0) * 1.2);
+    attr.exp += change;
+    
+    // 处理升级
     while(attr.exp >= attr.exp_required){
       attr.exp -= attr.exp_required;
       attr.level += 1;
       attr.exp_required = calcExpRequired(attr.level);
       levelUps.push({attribute: attr.name, level: attr.level});
     }
+    
+    // 处理降级（经验为负时）
+    while(attr.exp < 0 && attr.level > 1){
+      attr.level -= 1;
+      attr.exp_required = calcExpRequired(attr.level);
+      attr.exp += attr.exp_required;
+      levelDowns.push({attribute: attr.name, level: attr.level});
+    }
+    
+    // 确保经验不为负
+    if(attr.exp < 0) attr.exp = 0;
   });
   saveState();
   if(levelUps.length){
     levelUps.forEach(l => showLevelUpToast(`${l.attribute} 提升至 Lv${l.level}`));
+  }
+  if(levelDowns.length){
+    levelDowns.forEach(l => showTempMsg(`${l.attribute} 降至 Lv${l.level}`, 2000));
   }
 }
 
@@ -545,7 +562,7 @@ function openModal({mode='add', habit=null}){
   wrapper.appendChild(card);
   modalRoot.appendChild(wrapper);
 
-  // build rewardRow: stepper chips 0..5
+  // build rewardRow: stepper chips -5..5
   const rewardRow = card.querySelector('#rewardRow');
   rewardRow.style.display = 'grid';
   rewardRow.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
@@ -571,8 +588,9 @@ function openModal({mode='add', habit=null}){
     const delta = parseInt(btn.dataset.step);
     const valEl = card.querySelector(`div[data-val="${attr}"]`);
     let v = parseInt(valEl.textContent) || 0;
-    v = Math.max(0, Math.min(5, v + delta));
+    v = Math.max(-5, Math.min(5, v + delta));
     valEl.textContent = String(v);
+    valEl.style.color = v < 0 ? '#ff6b6b' : v > 0 ? '#5b9bd5' : '#98a3ad';
   });
 
   // fill fields if edit
@@ -600,7 +618,7 @@ function openModal({mode='add', habit=null}){
     ATTRIBUTES.forEach(a=>{
       const valEl = card.querySelector(`div[data-val="${a}"]`);
       const v = parseInt(valEl && valEl.textContent || '0') || 0;
-      if(v>0) rewards.push({ attribute: a, value: v });
+      if(v !== 0) rewards.push({ attribute: a, value: v });
     });
     if(rewards.length===0){ if(!confirm('未设置任何奖励，是否保存？')) return; }
     if(mode==='add'){
