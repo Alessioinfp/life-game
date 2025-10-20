@@ -1,16 +1,28 @@
 /*
-  简要说明：
-  - attributes: 五项属性，使用缓增长公式 exp_req = 20 * level^1.5
-  - habits: 数组，支持多属性奖励(rewards: [{attribute, value}])
-  - drag & drop: HTML5 drag events + touch long-press
-  - persistence: localStorage
+  游戏人生 - 习惯养成游戏化应用
+  功能：
+  - 五项属性升级系统（体力、智力、自律、创造力、幸福感）
+  - 技能成就徽章系统
+  - 习惯管理：列表视图 + 时间线视图
+  - 拖拽排序和时间编排
+  - 数据持久化（localStorage）
 */
 
 // -------- Data model and utilities --------
 const ATTRIBUTES = ['体力','智力','自律','创造力','幸福感'];
 const STORAGE_KEY = 'game_life_v1_data_v1';
 
+// 成就等级定义
+const ACHIEVEMENTS = [
+  {level:5, title:'初学者', icon:'🌱'},
+  {level:10, title:'熟练者', icon:'🌿'},
+  {level:15, title:'专家', icon:'🌳'},
+  {level:20, title:'大师', icon:'⭐'},
+  {level:30, title:'传奇', icon:'👑'}
+];
+
 let state = loadState();
+let currentView = 'list'; // 'list' or 'timeline'
 
 function defaultState(){
   // initialize attributes at level 1, 0 exp
@@ -21,10 +33,14 @@ function defaultState(){
   return {
     attributes: attrs,
     habits: [
-      { id: genId(), title:'跑步 30 分钟', rewards:[{attribute:'体力',value:3}], priority:1, status:'pending', repeat:'daily' },
-      { id: genId(), title:'阅读 20 页', rewards:[{attribute:'智力',value:2},{attribute:'自律',value:1}], priority:2, status:'pending', repeat:'daily' },
-      { id: genId(), title:'小提琴练习', rewards:[{attribute:'创造力',value:2}], priority:3, status:'pending', repeat:'daily' },
-    ]
+      { id: genId(), title:'跑步 30 分钟', rewards:[{attribute:'体力',value:3}], priority:1, status:'pending', repeat:'daily', timeSlot:'07:00' },
+      { id: genId(), title:'阅读 20 页', rewards:[{attribute:'智力',value:2},{attribute:'自律',value:1}], priority:2, status:'pending', repeat:'daily', timeSlot:'20:00' },
+      { id: genId(), title:'小提琴练习', rewards:[{attribute:'创造力',value:2}], priority:3, status:'pending', repeat:'daily', timeSlot:'19:00' },
+    ],
+    timelineSettings: {
+      start: '06:00',
+      end: '23:00'
+    }
   };
 }
 
@@ -38,6 +54,14 @@ function loadState(){
       if(parsed.attributes && parsed.attributes[a]){
         parsed.attributes[a].exp_required = calcExpRequired(parsed.attributes[a].level);
       }
+    });
+    // ensure timelineSettings exists
+    if(!parsed.timelineSettings){
+      parsed.timelineSettings = { start: '06:00', end: '23:00' };
+    }
+    // ensure all habits have timeSlot
+    parsed.habits.forEach(h => {
+      if(!h.timeSlot) h.timeSlot = '09:00';
     });
     return parsed;
   }catch(e){
@@ -63,6 +87,15 @@ const attrGrid = document.getElementById('attrGrid');
 const habitList = document.getElementById('habitList');
 const modalRoot = document.getElementById('modalRoot');
 const toastRoot = document.getElementById('toastRoot');
+const achievementGrid = document.getElementById('achievementGrid');
+const timelineContainer = document.getElementById('timelineContainer');
+const timelineRuler = document.getElementById('timelineRuler');
+const timelineHabits = document.getElementById('timelineHabits');
+const listView = document.getElementById('listView');
+const timelineView = document.getElementById('timelineView');
+const viewToggle = document.getElementById('viewToggle');
+const timeStart = document.getElementById('timeStart');
+const timeEnd = document.getElementById('timeEnd');
 
 function render(){
   // attributes
@@ -79,6 +112,45 @@ function render(){
     attrGrid.appendChild(card);
   });
 
+  // achievements
+  renderAchievements();
+
+  // render based on current view
+  if(currentView === 'list'){
+    renderListView();
+  } else {
+    renderTimelineView();
+  }
+}
+
+function renderAchievements(){
+  achievementGrid.innerHTML = '';
+  ATTRIBUTES.forEach(a=>{
+    const data = state.attributes[a];
+    const achieved = ACHIEVEMENTS.filter(ach => data.level >= ach.level);
+    const next = ACHIEVEMENTS.find(ach => data.level < ach.level);
+    
+    const card = document.createElement('div');
+    card.className = 'achievement-card';
+    
+    let badgesHtml = achieved.map(ach => 
+      `<span class="badge achieved" title="${ach.title} (Lv${ach.level})">${ach.icon}</span>`
+    ).join('');
+    
+    if(next){
+      badgesHtml += `<span class="badge locked" title="下一级: ${next.title} (Lv${next.level})">🔒</span>`;
+    }
+    
+    card.innerHTML = `
+      <div class="achievement-attr">${a}</div>
+      <div class="achievement-badges">${badgesHtml || '<span class="badge locked">🔒</span>'}</div>
+      <div class="achievement-progress">${achieved.length}/${ACHIEVEMENTS.length} 成就</div>
+    `;
+    achievementGrid.appendChild(card);
+  });
+}
+
+function renderListView(){
   // habits (sorted by priority asc)
   habitList.innerHTML = '';
   const sorted = [...state.habits].sort((x,y)=> (x.priority||0)-(y.priority||0));
@@ -91,7 +163,7 @@ function render(){
         <div class="left">
           <div style="display:flex;flex-direction:column">
             <div class="habit-title">${h.title}</div>
-            <div class="habit-reward">${h.rewards.map(r=>`${r.value >= 0 ? '+' : ''}${r.value}${r.attribute}`).join('  ')}</div>
+            <div class="habit-reward">${h.rewards.map(r=>`${r.value >= 0 ? '+' : ''}${r.value}${r.attribute}`).join('  ')} ${h.timeSlot ? '⏰ ' + h.timeSlot : ''}</div>
           </div>
         </div>
         <div class="controls">
@@ -120,9 +192,34 @@ function render(){
   });
 }
 
-render();
+function renderTimelineView(){
+  if(!state.timelineSettings){
+    state.timelineSettings = { start: '06:00', end: '23:00' };
+  }
+  
+  timeStart.value = state.timelineSettings.start;
+  timeEnd.value = state.timelineSettings.end;
+  
+  const startHour = parseInt(state.timelineSettings.start.split(':')[0]);
+  const endHour = parseInt(state.timelineSettings.end.split(':')[0]);
+  const hours = endHour - startHour + 1;
+  
+  const totalMinutes = percent * hours * 60;
+  const newHour = Math.floor(totalMinutes / 60) + startHour;
+  const newMin = Math.floor(totalMinutes % 60);
+  
+  const newTime = `${newHour.toString().padStart(2,'0')}:${newMin.toString().padStart(2,'0')}`;
+  
+  const habit = state.habits.find(h => h.id === timelineDragId);
+  if(habit){
+    habit.timeSlot = newTime;
+    saveState();
+    renderTimelineView();
+    showTempMsg(`已更新时间至 ${newTime}`);
+  }
+}
 
-// -------- drag & drop logic --------
+// -------- drag & drop logic (list view) --------
 let dragId = null;
 function dragStart(e){
   this.classList.add('dragging');
@@ -328,7 +425,6 @@ function toggleComplete(id){
   saveState();
   render();
   showTempMsg(`完成：${h.title}`);
-  // in demo, do not reset status to pending automatically; user can keep it done until next reset
 }
 
 function awardRewards(rewards){
@@ -385,6 +481,8 @@ function openModal({mode='add', habit=null}){
     </div>
     <label>任务名称</label>
     <input id="mTitle" type="text" placeholder="例如：跑步 30 分钟" />
+    <label>时间安排</label>
+    <input id="mTimeSlot" type="time" value="09:00" />
     <label>奖励（可多选）</label>
     <div class="checkbox-row" id="rewardRow"></div>
     <label>重复</label>
@@ -431,6 +529,7 @@ function openModal({mode='add', habit=null}){
   // fill fields if edit
   if(mode==='edit' && habit){
     card.querySelector('#mTitle').value = habit.title;
+    card.querySelector('#mTimeSlot').value = habit.timeSlot || '09:00';
     card.querySelector('#mRepeat').value = habit.repeat || 'daily';
     // populate rewards
     habit.rewards.forEach(r=>{
@@ -440,6 +539,8 @@ function openModal({mode='add', habit=null}){
         valEl.style.color = r.value < 0 ? '#ff6b6b' : r.value > 0 ? '#5b9bd5' : '#98a3ad';
       }
     });
+  } else {
+    card.querySelector('#mTimeSlot').value = '09:00';
   }
 
   function close(){
@@ -451,6 +552,7 @@ function openModal({mode='add', habit=null}){
   card.querySelector('#saveBtn').addEventListener('click', ()=>{
     const title = card.querySelector('#mTitle').value.trim();
     if(!title){ alert('请输入任务名称'); return; }
+    const timeSlot = card.querySelector('#mTimeSlot').value;
     const repeat = card.querySelector('#mRepeat').value;
     const rewards = [];
     ATTRIBUTES.forEach(a=>{
@@ -460,9 +562,9 @@ function openModal({mode='add', habit=null}){
     });
     if(rewards.length===0){ if(!confirm('未设置任何奖励，是否保存？')) return; }
     if(mode==='add'){
-      addHabit({ title, rewards, priority: (state.habits.length? Math.max(...state.habits.map(x=>x.priority||0))+1 : 1), status:'pending', repeat });
+      addHabit({ title, rewards, priority: (state.habits.length? Math.max(...state.habits.map(x=>x.priority||0))+1 : 1), status:'pending', repeat, timeSlot });
     }else if(mode==='edit' && habit){
-      updateHabit(habit.id, { title, rewards, repeat });
+      updateHabit(habit.id, { title, rewards, repeat, timeSlot });
     }
     close();
   });
@@ -490,12 +592,126 @@ function showLevelUpToast(msg){
 // autosave on page hide
 window.addEventListener('beforeunload', () => { saveState(); });
 
-// also expose some debug in console
+// expose debug in console
 window.__gameLifeState = state;
 
-// Register Service Worker for PWA
+// Register Service Worker for PWA (optional)
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js').catch(()=>{});
   });
+} parseInt(state.timelineSettings.end.split(':')[0]);
+  const hours = endHour - startHour + 1;
+  
+  // render ruler
+  timelineRuler.innerHTML = '';
+  for(let i = 0; i < hours; i++){
+    const hour = startHour + i;
+    const line = document.createElement('div');
+    line.className = 'timeline-hour';
+    line.style.top = `${(i / hours) * 100}%`;
+    line.innerHTML = `<span>${hour.toString().padStart(2,'0')}:00</span>`;
+    timelineRuler.appendChild(line);
+  }
+  
+  // render habits
+  timelineHabits.innerHTML = '';
+  state.habits.forEach(h => {
+    if(!h.timeSlot) h.timeSlot = '09:00';
+    
+    const [habitHour, habitMin] = h.timeSlot.split(':').map(Number);
+    const totalMinutes = (habitHour - startHour) * 60 + habitMin;
+    const totalRange = hours * 60;
+    const topPercent = (totalMinutes / totalRange) * 100;
+    
+    const el = document.createElement('div');
+    el.className = 'timeline-habit';
+    el.dataset.id = h.id;
+    el.style.top = `${Math.max(0, Math.min(95, topPercent))}%`;
+    el.innerHTML = `
+      <div class="timeline-habit-content">
+        <div class="timeline-habit-time">${h.timeSlot}</div>
+        <div class="timeline-habit-title">${h.title}</div>
+        <div class="timeline-habit-rewards">${h.rewards.map(r=>`${r.value >= 0 ? '+' : ''}${r.value}${r.attribute}`).join(' ')}</div>
+      </div>
+      <button class="mini" data-action="toggle">${h.status==='done'?'✓':'○'}</button>
+    `;
+    
+    el.addEventListener('click', (ev)=>{
+      const action = ev.target.dataset.action;
+      if(action==='toggle'){ toggleComplete(h.id); ev.stopPropagation(); }
+      else{ openEditModal(h); }
+    });
+    
+    // drag in timeline
+    el.setAttribute('draggable', 'true');
+    el.addEventListener('dragstart', timelineDragStart);
+    el.addEventListener('dragend', timelineDragEnd);
+    
+    timelineHabits.appendChild(el);
+  });
+  
+  // allow dropping in timeline container
+  timelineContainer.addEventListener('dragover', timelineDragOver);
+  timelineContainer.addEventListener('drop', timelineDrop);
 }
+
+render();
+
+// -------- view toggle --------
+viewToggle.addEventListener('click', ()=>{
+  currentView = currentView === 'list' ? 'timeline' : 'list';
+  if(currentView === 'list'){
+    listView.style.display = 'block';
+    timelineView.style.display = 'none';
+    viewToggle.textContent = '时间线视图';
+  } else {
+    listView.style.display = 'none';
+    timelineView.style.display = 'block';
+    viewToggle.textContent = '列表视图';
+  }
+  render();
+});
+
+// timeline settings
+timeStart.addEventListener('change', ()=>{
+  state.timelineSettings.start = timeStart.value;
+  saveState();
+  renderTimelineView();
+});
+
+timeEnd.addEventListener('change', ()=>{
+  state.timelineSettings.end = timeEnd.value;
+  saveState();
+  renderTimelineView();
+});
+
+// -------- timeline drag & drop --------
+let timelineDragId = null;
+
+function timelineDragStart(e){
+  this.classList.add('dragging');
+  timelineDragId = this.dataset.id;
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function timelineDragEnd(e){
+  this.classList.remove('dragging');
+  timelineDragId = null;
+}
+
+function timelineDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function timelineDrop(e){
+  e.preventDefault();
+  if(!timelineDragId) return;
+  
+  const rect = timelineContainer.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const percent = y / rect.height;
+  
+  const startHour = parseInt(state.timelineSettings.start.split(':')[0]);
+  const endHour =
