@@ -9,6 +9,7 @@
 // -------- Data model and utilities --------
 const ATTRIBUTES = ['体力','智力','自律','创造力','幸福感'];
 const STORAGE_KEY = 'game_life_v1_data_v1';
+const LAST_RESET_KEY = 'game_life_last_reset';
 
 let state = loadState();
 
@@ -39,10 +40,34 @@ function loadState(){
         parsed.attributes[a].exp_required = calcExpRequired(parsed.attributes[a].level);
       }
     });
+    
+    // 检查是否需要每日重置
+    checkDailyReset(parsed);
+    
     return parsed;
   }catch(e){
     console.warn('load error',e);
     return defaultState();
+  }
+}
+
+function checkDailyReset(state){
+  const today = new Date().toDateString();
+  const lastReset = localStorage.getItem(LAST_RESET_KEY);
+  
+  if(lastReset !== today){
+    // 新的一天，重置所有习惯状态
+    state.habits.forEach(habit => {
+      if(habit.repeat === 'daily'){
+        habit.status = 'pending';
+      }
+    });
+    
+    // 更新最后重置日期
+    localStorage.setItem(LAST_RESET_KEY, today);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    
+    console.log('每日重置完成，所有习惯已刷新');
   }
 }
 
@@ -328,7 +353,7 @@ function toggleComplete(id){
   saveState();
   render();
   showTempMsg(`完成：${h.title}`);
-  // in demo, do not reset status to pending automatically; user can keep it done until next reset
+  // 每日习惯会在第二天自动重置
 }
 
 function awardRewards(rewards){
